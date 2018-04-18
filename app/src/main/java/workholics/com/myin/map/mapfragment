@@ -821,4 +821,15 @@ public class RoutePreviewFragment extends Fragment implements OnMapReadyCallback
             if (points.size() != 0) mMap.addPolyline(lineOptions);//to avoid crash
         }
     }
+    
+    
+    /* replaceFramgent(new RoutePreviewFragment());
+   
+
+    public void replaceFramgent(Fragment fragment) {
+
+        android.support.v4.app.FragmentTransaction fragmentTransaction = this.getSupportFragmentManager().beginTransaction();
+        fragmentTransaction.replace(R.id.preview_container, fragment);
+        fragmentTransaction.commit();
+    }*/
 }
