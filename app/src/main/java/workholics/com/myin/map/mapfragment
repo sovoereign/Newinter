@@ -1,0 +1,824 @@
+package workholics.com.myin.map;
+
+
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.ActivityNotFoundException;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.location.Criteria;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.net.Uri;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.support.design.widget.FloatingActionButton;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentTransaction;
+import android.support.v7.app.AlertDialog;
+import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import com.android.volley.DefaultRetryPolicy;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolylineOptions;
+import com.zeloo.Bean.FolderItemBeam;
+import com.zeloo.R;
+import com.zeloo.activity.MainTabActivity;
+import com.zeloo.activity.SelectRouteActivity;
+import com.zeloo.utils.CShowProgress;
+import com.zeloo.utils.CommonUtility;
+import com.zeloo.utils.Constant;
+import com.zeloo.utils.DirectionsJSONParser;
+import com.zeloo.webservicesconstant.WebServicesConstant;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import static android.content.Context.LOCATION_SERVICE;
+import static com.zeloo.activity.SelectRouteActivity.latlang;
+import static com.zeloo.activity.SelectRouteActivity.startEnd;
+
+/**
+ * A simple {@link Fragment} subclass.
+ */
+public class RoutePreviewFragment extends Fragment implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener,
+        LocationListener, View.OnClickListener {
+
+    View view;
+    ImageView iv_home;
+    TextView tv_create;
+    AlertDialog alertDialog;
+    AlertDialog.Builder builder;
+    String title = "";
+    String itemids = "";
+    String sourceid = "";
+    String destinationid = "";
+    FloatingActionButton float_googlemap;
+
+    SupportMapFragment mapFragment;
+    ArrayList<LatLng> latLngArrayList;
+
+    double sourcelat = 0.0;
+    double sourcelon = 0.0;
+
+    double lat = 0.0;
+    double lon = 0.0;
+
+    double deslat;
+    double deslon;
+
+
+    CShowProgress cShowProgress;
+
+    private GoogleMap mMap;
+    private Handler _handler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+            String response = msg.obj.toString();
+
+            Log.e("REsponse", "handleMessage: " + response);
+            System.out.println("Login" + response);
+
+            if (response != null) {
+                try {
+                    JSONObject jsonObject = new JSONObject(response);
+                    String result = jsonObject.getString("result");
+                    String message = jsonObject.getString("message");
+                    if (result.equalsIgnoreCase("1")) {
+
+                        Constant.fragment = "route";
+                        Intent calender = new Intent(getContext(), MainTabActivity.class);
+                        startActivity(calender);
+                        getActivity().overridePendingTransition(R.anim.slide_in_left, R.anim.fade_out);
+
+
+                    } else {
+
+                        Toast.makeText(getActivity(), "" + message, Toast.LENGTH_LONG).show();
+                    }
+
+                } catch (JSONException e) {
+
+                    System.out.println("ROUTE CREATE" + e);
+                    Log.e("ROUTE CREATE", "" + e);
+
+                }
+            }
+        }
+    };
+
+
+    public RoutePreviewFragment() {
+        // Required empty public constructor
+    }
+
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container,
+                             Bundle savedInstanceState) {
+        // Inflate the layout for this fragment
+        view = inflater.inflate(R.layout.fragment_route_preview, container, false);
+        init();
+        listner();
+
+        return view;
+    }
+
+    private void init() {
+        latLngArrayList = new ArrayList<>();
+        iv_home = (ImageView) view.findViewById(R.id.iv_home);
+        tv_create = (TextView) view.findViewById(R.id.tv_create);
+        iv_home = (ImageView) view.findViewById(R.id.iv_home);
+        float_googlemap = (FloatingActionButton) view.findViewById(R.id.float_googlemap);
+
+        cShowProgress = CShowProgress.getInstance();
+        cShowProgress.showProgress(getActivity());
+
+    }
+
+    private void listner() {
+        iv_home.setOnClickListener(this);
+        tv_create.setOnClickListener(this);
+        float_googlemap.setOnClickListener(this);
+
+    }
+
+    @Override
+    public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        getRouteData();
+        FragmentManager fm = getChildFragmentManager();
+        mapFragment = (SupportMapFragment) fm.findFragmentByTag("mapFragment");
+        if (mapFragment == null) {
+            mapFragment = new SupportMapFragment();
+            FragmentTransaction ft = fm.beginTransaction();
+            ft.add(R.id.map, mapFragment, "mapFragment");
+            ft.commit();
+            fm.executePendingTransactions();
+        }
+        mapFragment.getMapAsync(this);
+
+    }
+
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()) {
+            case R.id.iv_home:
+
+                latlang.clear();
+                Intent home = new Intent(getContext(), SelectRouteActivity.class);
+                startActivity(home);
+                getActivity().overridePendingTransition(R.anim.slide_in_left, R.anim.fade_out);
+
+                break;
+
+            case R.id.tv_create:
+
+                addFolderDialog();
+
+                break;
+
+            case R.id.float_googlemap:
+
+//                Uri gmmIntentUri1 = Uri.parse("https://www.google.com/maps/dir/?api=1" +
+//                        "&origin=18.519513,73.868315" +
+//                        "&destination=18.518496,73.879259" +
+//                        "&waypoints=18.520561,73.872435|18.519254,73.876614|18.52152,73.877327|18.52019,73.879935" +
+//                        "&travelmode=driving");
+
+                String uri1 = getDirectionsUrl(new LatLng(sourcelat, sourcelon), new LatLng(deslat, deslon), latLngArrayList);
+                if (uri1.endsWith("|")) {
+                    uri1 = uri1.substring(0, uri1.length() - 1);
+                }
+
+                // sir yaha par app cahe to aise bana bhi sakte hai vese mene isko use nahi kiya hai ye charo ko
+                String base = "Uri.parse(\"https://www.google.com/maps/dir/?api=1";
+                String origin = "&origin=" + sourcelat + "," + sourcelon;
+                String destination = "&destination=" + deslat + "," + deslon;
+                String waypoints = "&waypoints=";
+
+                String mode = uri1 + "&travelmode=driving";
+
+                String uri = "http://maps.google.com/maps?saddr=" + sourcelat + "," + sourcelon + "&daddr=" + deslat + "," + deslon;
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
+                intent.setPackage("com.google.android.apps.maps");
+                try {
+                    startActivity(intent);
+                } catch (ActivityNotFoundException ex) {
+                    try {
+                        Intent unrestrictedIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(mode));
+                        startActivity(unrestrictedIntent);
+                    } catch (ActivityNotFoundException innerEx) {
+                        Toast.makeText(getActivity(), "Please install a maps application", Toast.LENGTH_LONG).show();
+                    }
+                }
+                break;
+
+
+        }
+    }
+
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
+
+
+        LocationManager locationManager = (LocationManager) getActivity().getSystemService(LOCATION_SERVICE);
+        Criteria criteria = new Criteria();
+        String bestProvider = locationManager.getBestProvider(criteria, true);
+        if (ActivityCompat.checkSelfPermission(getActivity(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+
+        Location location = locationManager.getLastKnownLocation(bestProvider);
+        if (location != null) {
+            onLocationChanged(location);
+
+        }
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, this);
+        locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, this);
+        locationManager.requestLocationUpdates(bestProvider, 20000, 0, this);
+
+
+        if (lat == 0.0 && lon == 0.0) {
+            DownloadTask downloadTask = new DownloadTask();
+            downloadTask.execute(getDirectionsUrl(new LatLng(sourcelat, sourcelon), new LatLng(deslat, deslon), latLngArrayList));
+        } else {
+            DownloadTask downloadTask = new DownloadTask();
+            downloadTask.execute(getDirectionsUrl(new LatLng(lat, lon), new LatLng(deslat, deslon), latLngArrayList));
+
+        }
+
+
+        Log.e("Multipoint", getDirectionsUrl(new LatLng(sourcelat, sourcelon), new LatLng(deslat, deslon), latLngArrayList));
+
+    }
+
+
+    @Override
+    public void onLocationChanged(Location location) {
+
+
+        if (location != null) {
+
+
+        } else {
+            Toast.makeText(getContext(), "Location not found", Toast.LENGTH_SHORT).show();
+        }
+
+
+    }
+
+
+    LatLng getCurrentLocation(GoogleMap map) {
+        Location myLocation = map.getMyLocation();
+        if (myLocation != null) {
+            double dLatitude = myLocation.getLatitude();
+            double dLongitude = myLocation.getLongitude();
+
+        } else {
+        }
+
+        return null;
+    }
+
+    private String downloadUrl(String strUrl) throws IOException {
+        String data = "";
+        InputStream iStream = null;
+        HttpURLConnection urlConnection = null;
+        try {
+            URL url = new URL(strUrl);
+
+            urlConnection = (HttpURLConnection) url.openConnection();
+
+            urlConnection.connect();
+
+            iStream = urlConnection.getInputStream();
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(iStream));
+
+            StringBuffer sb = new StringBuffer();
+
+            String line = "";
+            while ((line = br.readLine()) != null) {
+                sb.append(line);
+            }
+
+            data = sb.toString();
+
+            br.close();
+
+        } catch (Exception e) {
+            Log.d("Exception", e.toString());
+        } finally {
+            iStream.close();
+            urlConnection.disconnect();
+        }
+        return data;
+    }
+
+    public void addFolderDialog() {
+        builder = new AlertDialog.Builder(getActivity());
+        builder.setCancelable(true);
+        TextView tv_done, tv_showlist;
+        final EditText et_routetitle;
+
+        LayoutInflater inflater = getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.dialog_createroute, null);
+        tv_showlist = (TextView) dialogView.findViewById(R.id.tv_showlist);
+        tv_done = (TextView) dialogView.findViewById(R.id.tv_done);
+        et_routetitle = (EditText) dialogView.findViewById(R.id.et_routetitle);
+        builder.setView(dialogView);
+        alertDialog = builder.create();
+        alertDialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+
+        tv_showlist.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+
+//                Intent intent = new Intent(getActivity(), SavedListActivity.class);
+//                startActivity(intent);
+//                overridePendingTransition(R.anim.fade_in, R.anim.fade_out);
+                alertDialog.dismiss();
+
+            }
+        });
+        tv_done.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+
+
+                title = et_routetitle.getText().toString();
+
+                if (itemids.endsWith(",")) {
+                    itemids = itemids.substring(0, itemids.length() - 1);
+                }
+//                Log.e("title", title);
+//                Log.e("itemids", itemids);
+//                Log.e("sourceid", sourceid);
+//                Log.e("destinationid", destinationid);
+//
+//                Log.e("lat", "" + lat);
+//                Log.e("lat", "" + lon);
+
+
+                String slat = "", slon = "";
+                if (lat == 0.0 & lon == 0.0) {
+
+                    slat = "";
+                    slon = "";
+
+                }
+
+                else{
+                    slat=""+lat;
+                    slon=""+lon;
+                }
+
+
+                if (isValid()) {
+
+
+                    serviceCreateRoute(title, itemids, sourceid, destinationid, "" + slat, "" + slon);
+                    alertDialog.dismiss();
+
+                }
+
+
+            }
+        });
+
+
+        getActivity().overridePendingTransition(R.anim.translate, R.anim.slide_in_left);
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
+        lp.copyFrom(alertDialog.getWindow().getAttributes());
+        lp.width = 550;
+        lp.height = 650;
+        alertDialog.show();
+        alertDialog.getWindow().setAttributes(lp);
+    }
+
+    private boolean isValid() {
+        if (title.length() == 0 || title == null || title.equalsIgnoreCase("")) {
+            Toast.makeText(getContext(), "Please enter route title", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void serviceCreateRoute(final String title, final String itemids, final String sourceid, final String destinationid, final String lat, final String lon) {
+
+        final CShowProgress cShowProgress = CShowProgress.getInstance();
+        cShowProgress.showProgress(getContext());
+
+        StringRequest stringRequest = new StringRequest(com.android.volley.Request.Method.POST, WebServicesConstant.URL + WebServicesConstant.ADDROUTE,
+                new Response.Listener<String>() {
+                    @Override
+                    public void onResponse(String response) {
+                        cShowProgress.hideProgress();
+                        Message msg = new Message();
+                        msg.obj = response;
+                        _handler.sendMessage(msg);
+
+                    }
+                },
+                new Response.ErrorListener() {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        cShowProgress.hideProgress();
+                    }
+                }) {
+            @Override
+            protected Map<String, String> getParams() {
+                Map<String, String> params = new HashMap<String, String>();
+
+
+                params.put("userid", CommonUtility.getGlobalString(getActivity(), "userid"));
+                params.put("itemids", itemids);
+                params.put("title", title);
+                params.put("sourceid", sourceid);
+                params.put("destinationid", destinationid);
+                params.put("lat", lat);
+                params.put("lon", lon);
+
+
+                Log.e("GET ROUTE CREATE", "getParams: " + params);
+                return params;
+            }
+
+        };
+
+        stringRequest.setRetryPolicy(new DefaultRetryPolicy(500000,
+                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+
+        RequestQueue requestQueue = Volley.newRequestQueue(getContext());
+        requestQueue.add(stringRequest);
+
+    }
+
+
+    @SuppressLint("MissingPermission")
+    public LatLng updateLoction() {
+        LocationManager locationManger = (LocationManager) getActivity().getSystemService(Context.LOCATION_SERVICE);
+
+        @SuppressLint("MissingPermission") Location location = locationManger.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+        if (location != null) {
+
+            return new LatLng(location.getLatitude(), location.getLongitude());
+        }
+        locationManger.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, this);
+        locationManger.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, this);
+
+        return new LatLng(location.getLatitude(), location.getLongitude());
+    }
+
+
+    private void getPreview() {
+        Iterator myVeryOwnIterator = latlang.keySet().iterator();
+
+        while (myVeryOwnIterator.hasNext()) {
+            String key = (String) myVeryOwnIterator.next();
+            FolderItemBeam value = (FolderItemBeam) latlang.get(key);
+            boolean source = value.isSource();
+            boolean destination = value.isDestination();
+
+
+            Log.e("-------------------", "---------------");
+
+            if (source) {
+                sourcelat = Double.parseDouble(value.getLat());
+                sourcelon = Double.parseDouble(value.getLon());
+
+                sourceid = value.getId();
+            } else if (destination) {
+                deslat = Double.parseDouble(value.getLat());
+                deslon = Double.parseDouble(value.getLon());
+
+                destinationid = value.getId();
+            } else {
+
+                itemids = value.getId() + "," + itemids;
+                latLngArrayList.add(new LatLng(Double.parseDouble(value.getLat()), Double.parseDouble(value.getLon())));
+                Log.e("Value", value.getId());
+                Log.e("Value", value.getActivity_name());
+                Log.e("Value", value.getLat());
+                Log.e("Value", value.getLon());
+                Log.e("Value", "" + source);
+                Log.e("Value", "" + destination);
+            }
+
+
+        }
+
+        Log.e("latLngArrayList ", "" + latLngArrayList.size());
+
+    }
+
+    private void getRouteData() {
+
+
+        Iterator myVeryOwnIterator = latlang.keySet().iterator();
+
+        while (myVeryOwnIterator.hasNext()) {
+
+
+            String key = (String) myVeryOwnIterator.next();
+            FolderItemBeam value = (FolderItemBeam) latlang.get(key);
+
+            Log.e("----------Data---------", "---------------");
+
+            itemids = value.getId() + "," + itemids;
+            latLngArrayList.add(new LatLng(Double.parseDouble(value.getLat()), Double.parseDouble(value.getLon())));
+            Log.e("Route List", value.toString());
+
+
+        }
+
+        Log.e("latLngArrayList ", "" + latLngArrayList.size());
+
+
+        /***********For Destination*************/
+
+        if (startEnd.containsKey("destination")) {
+
+            Log.e("-----Destination-----", "---------------");
+
+            deslat = Double.parseDouble(startEnd.get("destination").getLat());
+            deslon = Double.parseDouble(startEnd.get("destination").getLon());
+            destinationid = startEnd.get("destination").getId();
+
+            Log.e("destination ", "" + destinationid + "  destination::" + startEnd.get("destination"));
+        }
+
+        /***********For Source*************/
+
+        if (startEnd.containsKey("source")) {
+
+
+            Log.e("-----Source-----", "---------------");
+
+            sourcelat = Double.parseDouble(startEnd.get("source").getLat());
+            sourcelon = Double.parseDouble(startEnd.get("source").getLon());
+            sourceid = startEnd.get("source").getId();
+            lat = 0.0;
+            lon = 0.0;
+
+
+            Log.e("source ", "" + sourceid + "  Data::" + startEnd.get("source"));
+        } else {
+            sourcelat = 0.0;
+            sourcelon = 0.0;
+            lat = updateLoction().latitude;
+            lon = updateLoction().longitude;
+        }
+    }
+
+
+    String getDirectionsUrl(LatLng origin, LatLng dest, ArrayList<LatLng> mLatLongAL) {
+        try {
+            String str_origin = "origin=" + origin.latitude + "," + origin.longitude;
+            String str_dest = "destination=" + dest.latitude + "," + dest.longitude;
+            String sensor = "sensor=false";
+
+            String url = "https://maps.googleapis.com/maps/api/directions/json?";
+            String waypoints = "";
+
+            Marker marker1 = mMap.addMarker(new MarkerOptions().position(origin));
+            Marker marker2 = mMap.addMarker(new MarkerOptions().position(dest));
+
+            for (int i = 0; i < mLatLongAL.size(); i++) {
+                LatLng point = (LatLng) mLatLongAL.get(i);
+
+                if (i == 0)
+                    waypoints = "waypoints=";
+                waypoints += point.latitude + "," + point.longitude + "|";
+
+                Marker marker3 = mMap.addMarker(new MarkerOptions().position(point));
+
+            }
+            String parameters = str_origin + "&" + str_dest + "&" + sensor + "&" + waypoints;
+            String mUrl = url + parameters;
+            Log.e("URL", mUrl);
+            Log.e("origin.latitude", "" + origin.latitude);
+            Log.e("origin.longitude", "" + origin.longitude);
+            Log.e("dest.latitude", "" + dest.latitude);
+            Log.e("dest.longitude", "" + dest.longitude);
+            Log.e("mLatLongAL", "" + mLatLongAL.size());
+
+
+            return mUrl;
+        } catch (Exception e) {
+            e.printStackTrace();
+            Log.e("GETDIRECTION", "" + e);
+        }
+        return null;
+    }
+
+    private String getDirectionsUrl(LatLng origin, LatLng dest) {
+
+        // Origin of route
+        String str_origin = "origin=" + origin.latitude + "," + origin.longitude;
+
+        // Destination of route
+        String str_dest = "destination=" + dest.latitude + "," + dest.longitude;
+
+        // Sensor enabled
+        String sensor = "sensor=false";
+        String mode = "mode=driving";
+
+        // Building the parameters to the web service
+        String parameters = str_origin + "&" + str_dest + "&" + sensor + "&" + mode;
+
+        // Output format
+        String output = "json";
+
+        // Building the url to the web service
+        String url = "https://maps.googleapis.com/maps/api/directions/" + output + "?" + parameters;
+
+        return url;
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {
+
+    }
+
+    @Override
+    public void onProviderEnabled(String provider) {
+
+    }
+
+    @Override
+    public void onProviderDisabled(String provider) {
+
+    }
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+
+        latlang.clear();
+    }
+
+
+    private class DownloadTask extends AsyncTask<String, Integer, String> {
+
+        @Override
+        protected String doInBackground(String... url) {
+
+            String data = "";
+
+            try {
+                Log.d("URL 0", "" + url[0]);
+                data = downloadUrl(url[0]);
+            } catch (Exception e) {
+                Log.d("Background Task", e.toString());
+            }
+            return data;
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            super.onPostExecute(result);
+
+            ParserTask parserTask = new ParserTask();
+            parserTask.execute(result);
+
+        }
+    }
+
+    private class ParserTask extends AsyncTask<String, Integer, List<List<HashMap>>> {
+
+        // Parsing the data in non-ui thread
+        @Override
+        protected List<List<HashMap>> doInBackground(String... jsonData) {
+
+            JSONObject jObject;
+            List<List<HashMap>> routes = null;
+
+            try {
+                jObject = new JSONObject(jsonData[0]);
+                DirectionsJSONParser parser = new DirectionsJSONParser();
+
+                routes = parser.parse(jObject);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            return routes;
+        }
+
+        @Override
+        protected void onPostExecute(List<List<HashMap>> result) {
+
+            cShowProgress.hideProgress();
+            ArrayList<LatLng> points = new ArrayList<LatLng>();
+            ;
+            PolylineOptions lineOptions = new PolylineOptions();
+            ;
+
+            MarkerOptions markerOptions = new MarkerOptions();
+
+
+            for (int i = 0; i < result.size(); i++) {
+                points = new ArrayList();
+                lineOptions = new PolylineOptions();
+
+                List<HashMap> path = result.get(i);
+
+                for (int j = 0; j < path.size(); j++) {
+                    HashMap point = path.get(j);
+                    Log.e("Lat URL", "" + point.get("lat"));
+                    Log.e("lon URL", "" + point.get("lng"));
+
+                    double lat = Double.parseDouble((String) point.get("lat"));
+                    double lng = Double.parseDouble((String) point.get("lng"));
+                    LatLng position = new LatLng(lat, lng);
+
+                    points.add(position);
+
+
+                }
+
+                mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(points.get(0), 10));
+                lineOptions.addAll(points);
+                lineOptions.width(15);
+                lineOptions.color(Color.parseColor("#FDD017"));
+                lineOptions.geodesic(true);
+
+
+            }
+
+// Drawing polyline in the Google Map for the i-th route
+
+            // Drawing polyline in the Google Map for the i-th route
+            if (points.size() != 0) mMap.addPolyline(lineOptions);//to avoid crash
+        }
+    }
+}
